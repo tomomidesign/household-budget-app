@@ -107,15 +107,23 @@ export function BudgetApp() {
   }
 
   function deleteEntry(id: string) {
-    setState({ ...state, entries: state.entries.filter((entry) => entry.id !== id) });
+    setState((current) =>
+      current
+        ? { ...current, entries: current.entries.filter((entry) => entry.id !== id) }
+        : current
+    );
     setMessage("削除しました");
   }
 
   function updateEntry(entry: BudgetEntry) {
-    setState({
-      ...state,
-      entries: state.entries.map((item) => (item.id === entry.id ? entry : item))
-    });
+    setState((current) =>
+      current
+        ? {
+            ...current,
+            entries: current.entries.map((item) => (item.id === entry.id ? entry : item))
+          }
+        : current
+    );
     setMessage("更新しました");
   }
 

@@ -209,6 +209,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 function EditableList<T extends { id: string; isDefault?: boolean }>({
   items,
   getLabel,
+  onEdit,
   onRemove
 }: {
   items: T[];
