@@ -13,7 +13,10 @@ export async function analyzeReceiptImage(file: File): Promise<ReceiptAnalysisRe
   });
 
   if (!response.ok) {
-    throw new Error("AI画像解析に失敗しました");
+    const body = await response.text();
+    throw new Error(
+      `AI画像解析に失敗しました: status=${response.status}, body=${body.slice(0, 2000)}`
+    );
   }
 
   return (await response.json()) as ReceiptAnalysisResult;
@@ -22,7 +25,10 @@ export async function analyzeReceiptImage(file: File): Promise<ReceiptAnalysisRe
 export async function analyzeReceiptWithFallback(file: File): Promise<ReceiptAnalysisResult> {
   try {
     return await analyzeReceiptImage(file);
-  } catch {
+  } catch (error) {
+    console.error("[receipt-analysis] falling back to Tesseract", {
+      error: error instanceof Error ? error.message : String(error)
+    });
     const fallback = await runReceiptOcr(file);
     return {
       date: fallback.date,
@@ -33,7 +39,8 @@ export async function analyzeReceiptWithFallback(file: File): Promise<ReceiptAna
       items: [],
       suggestedCategory: "",
       confidence: 0,
-      source: "tesseract"
+      source: "tesseract",
+      fallbackReason: error instanceof Error ? error.message : String(error)
     };
   }
 }

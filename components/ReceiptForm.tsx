@@ -245,6 +245,11 @@ function AnalysisPreview({ result }: { result: ReceiptAnalysisResult }) {
               : "手入力"}
         </span>
       </div>
+      {result.fallbackReason ? (
+        <p className="mt-3 rounded-lg bg-red-50 p-2 text-xs text-danger">
+          AI解析失敗理由: {result.fallbackReason}
+        </p>
+      ) : null}
       <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-white p-3 text-xs text-ink">
         {JSON.stringify(
           {

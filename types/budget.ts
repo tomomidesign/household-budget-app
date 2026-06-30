@@ -68,6 +68,7 @@ export type ReceiptAnalysisResult = {
   suggestedCategory: string;
   confidence: number;
   source: "ai" | "tesseract" | "manual";
+  fallbackReason?: string;
 };
 
 export type AppState = {
