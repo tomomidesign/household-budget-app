@@ -52,6 +52,24 @@ export type OcrResult = {
   rawText: string;
 };
 
+export type ReceiptAnalysisItem = {
+  name: string;
+  price: number;
+  quantity: number;
+};
+
+export type ReceiptAnalysisResult = {
+  date: string;
+  storeName: string;
+  totalAmount: number;
+  taxAmount: number;
+  paymentMethod: string;
+  items: ReceiptAnalysisItem[];
+  suggestedCategory: string;
+  confidence: number;
+  source: "ai" | "tesseract" | "manual";
+};
+
 export type AppState = {
   entries: BudgetEntry[];
   categories: Category[];

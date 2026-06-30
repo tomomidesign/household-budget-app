@@ -3,9 +3,9 @@
 import { Camera, Loader2, RotateCcw, Save } from "lucide-react";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { runReceiptOcr } from "@/lib/ocr";
 import { todayInputValue } from "@/lib/date";
-import type { AppState, EntryDraft, OcrResult } from "@/types/budget";
+import { analyzeReceiptWithFallback } from "@/lib/receipt-analysis";
+import type { AppState, EntryDraft, ReceiptAnalysisResult } from "@/types/budget";
 
 type ReceiptFormProps = {
   state: AppState;
@@ -15,9 +15,9 @@ type ReceiptFormProps = {
 export function ReceiptForm({ state, onAddEntry }: ReceiptFormProps) {
   const expenseCategory = state.categories.find((category) => category.type === "expense");
   const paymentMethod = state.paymentMethods[0];
-  const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<ReceiptAnalysisResult | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>();
-  const [isOcrRunning, setIsOcrRunning] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<EntryDraft>({
     date: todayInputValue(),
@@ -41,31 +41,45 @@ export function ReceiptForm({ state, onAddEntry }: ReceiptFormProps) {
     }
 
     setError("");
-    setIsOcrRunning(true);
+    setIsAnalyzing(true);
 
     try {
       const nextImageDataUrl = await fileToDataUrl(file);
       setImageDataUrl(nextImageDataUrl);
-      const result = await runReceiptOcr(file);
-      setOcrResult(result);
+      const result = await analyzeReceiptWithFallback(file);
+      setAnalysisResult(result);
+      const matchedCategory = findCategoryId(state, result.suggestedCategory, draft.type);
+      const matchedPayment = findPaymentMethodId(state, result.paymentMethod);
       setDraft((current) => ({
         ...current,
-        date: result.date,
-        amount: result.amount,
+        date: result.date || current.date,
+        amount: result.totalAmount,
         storeName: result.storeName,
+        categoryId: matchedCategory || current.categoryId,
+        paymentMethodId: matchedPayment || current.paymentMethodId,
         receiptImageDataUrl: nextImageDataUrl
       }));
     } catch {
-      setError("OCRに失敗しました。内容を手入力してください。");
-      setOcrResult({ date: draft.date, storeName: "", amount: 0, rawText: "" });
+      setError("AI画像解析に失敗しました。内容を手入力してください。");
+      setAnalysisResult({
+        date: draft.date,
+        storeName: "",
+        totalAmount: 0,
+        taxAmount: 0,
+        paymentMethod: "",
+        items: [],
+        suggestedCategory: "",
+        confidence: 0,
+        source: "manual"
+      });
     } finally {
-      setIsOcrRunning(false);
+      setIsAnalyzing(false);
     }
   }
 
   async function handleSubmit() {
     await onAddEntry({ ...draft, receiptImageDataUrl: imageDataUrl });
-    setOcrResult(null);
+    setAnalysisResult(null);
     setImageDataUrl(undefined);
     setDraft({
       date: todayInputValue(),
@@ -82,7 +96,7 @@ export function ReceiptForm({ state, onAddEntry }: ReceiptFormProps) {
   return (
     <section className="space-y-4">
       <label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-line bg-white p-6 text-center shadow-material">
-        {isOcrRunning ? (
+        {isAnalyzing ? (
           <Loader2 className="animate-spin text-primary" size={34} />
         ) : (
           <Camera className="text-primary" size={34} />
@@ -100,13 +114,14 @@ export function ReceiptForm({ state, onAddEntry }: ReceiptFormProps) {
 
       {error ? <p className="rounded-lg bg-red-50 p-3 text-sm text-danger">{error}</p> : null}
 
-      {(ocrResult || imageDataUrl) && (
+      {(analysisResult || imageDataUrl) && (
         <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-primary">
-          OCR結果を確認して、必要なら修正してください。
+          AI解析結果を確認して、必要なら修正してください。確認後に登録されます。
         </div>
       )}
 
       <div className="grid gap-3 rounded-lg bg-white p-4 shadow-material">
+        {analysisResult ? <AnalysisPreview result={analysisResult} /> : null}
         <Field label="日付">
           <input
             type="date"
@@ -192,12 +207,6 @@ export function ReceiptForm({ state, onAddEntry }: ReceiptFormProps) {
             placeholder="メモ"
           />
         </Field>
-        {ocrResult?.rawText ? (
-          <details className="text-sm text-muted">
-            <summary className="cursor-pointer">OCR全文</summary>
-            <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-surface p-3">{ocrResult.rawText}</pre>
-          </details>
-        ) : null}
         <button
           type="button"
           onClick={() => void handleSubmit()}
@@ -209,13 +218,49 @@ export function ReceiptForm({ state, onAddEntry }: ReceiptFormProps) {
         </button>
         <button
           type="button"
-          onClick={() => setOcrResult(null)}
+          onClick={() => {
+            setAnalysisResult(null);
+            setError("");
+          }}
           className="btn-secondary"
         >
           <RotateCcw size={18} />
           手入力に戻す
         </button>
       </div>
+    </section>
+  );
+}
+
+function AnalysisPreview({ result }: { result: ReceiptAnalysisResult }) {
+  return (
+    <section className="rounded-lg border border-line bg-surface p-3 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-bold text-ink">解析JSON</h2>
+        <span className="rounded-full bg-white px-2 py-1 text-xs text-muted">
+          {result.source === "ai"
+            ? "AI Vision"
+            : result.source === "tesseract"
+              ? "Tesseract fallback"
+              : "手入力"}
+        </span>
+      </div>
+      <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-white p-3 text-xs text-ink">
+        {JSON.stringify(
+          {
+            date: result.date,
+            storeName: result.storeName,
+            totalAmount: result.totalAmount,
+            taxAmount: result.taxAmount,
+            paymentMethod: result.paymentMethod,
+            items: result.items,
+            suggestedCategory: result.suggestedCategory,
+            confidence: result.confidence
+          },
+          null,
+          2
+        )}
+      </pre>
     </section>
   );
 }
@@ -235,5 +280,33 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {label}
       {children}
     </label>
+  );
+}
+
+function findCategoryId(state: AppState, categoryName: string, type: EntryDraft["type"]): string {
+  const normalized = categoryName.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return (
+    state.categories.find(
+      (category) => category.type === type && category.name === normalized
+    )?.id ?? ""
+  );
+}
+
+function findPaymentMethodId(state: AppState, paymentMethodName: string): string {
+  const normalized = paymentMethodName.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return (
+    state.paymentMethods.find((method) => method.name === normalized)?.id ??
+    state.paymentMethods.find(
+      (method) => normalized.includes(method.name) || method.name.includes(normalized)
+    )?.id ??
+    ""
   );
 }

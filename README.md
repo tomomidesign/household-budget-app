@@ -24,9 +24,16 @@ npm run dev
 
 Google Drive保存とSupabaseバックアップは、MVP確認では無効です。
 
+レシート画像解析にはサーバ側のOpenAI APIキーを使います。VercelのEnvironment Variablesに
+`OPENAI_API_KEY` を設定してください。フロントエンドへ露出しないよう、`NEXT_PUBLIC_` は付けません。
+
+任意で `OPENAI_VISION_MODEL` を設定できます。未設定時は `gpt-4.1-mini` を使います。
+
 有効化する場合は `.env.local` を作成し、以下を設定します。
 
 ```env
+OPENAI_API_KEY=
+OPENAI_VISION_MODEL=gpt-4.1-mini
 NEXT_PUBLIC_ENABLE_SUPABASE_BACKUP=true
 NEXT_PUBLIC_ENABLE_DRIVE_UPLOAD=true
 NEXT_PUBLIC_SUPABASE_URL=
